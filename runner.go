@@ -44,14 +44,15 @@ type Logger interface {
 
 // Runner 声明一个runner
 type Runner struct {
-	complete   chan error       // 有缓冲通道，存放所有任务运行后的结果状态
-	tasks      []func() error   // 执行的任务func,如果func没有错误返回，可以返回nil
-	timeout    time.Duration    // 所有的任务超时时间
-	timeCh     <-chan time.Time // 任务超时通道
-	logger     Logger           // 日志输出实例
-	interrupt  chan os.Signal   // 可以控制强制终止的信号
-	allErrors  map[int]error    // 发生错误的task index对应的错误
-	lastTaskId int              // 最后一次完成的任务id
+	complete            chan error       // 有缓冲通道，存放所有任务运行后的结果状态
+	tasks               []func() error   // 执行的任务func,如果func没有错误返回，可以返回nil
+	timeout             time.Duration    // 所有的任务超时时间
+	timeCh              <-chan time.Time // 任务超时通道
+	logger              Logger           // 日志输出实例
+	interrupt           chan os.Signal   // 可以控制强制终止的信号
+	allErrors           map[int]error    // 发生错误的task index对应的错误
+	lastTaskId          int              // 最后一次完成的任务id
+	interruptLastTaskId int              // 当接收到终端信号量时，执行任务的id
 }
 
 // Option 采用func Option功能模式为Runner添加参数
@@ -99,19 +100,21 @@ func (r *Runner) Add(tasks ...func() error) {
 // run 运行一个个任务,如果出错就返回错误信息
 func (r *Runner) run() (err error) {
 	for k, task := range r.tasks {
-		r.lastTaskId = k
-
 		if r.isInterrupt() {
+			r.interruptLastTaskId = k
 			err = ErrInterrupt
 			return
 		}
 
-		r.logger.Println("current run task id: ", k)
+		// 记录任务id
+		r.lastTaskId = k
 
+		r.logger.Println("current run task id: ", k)
 		err = r.doTask(task)
 		if err != nil {
 			r.logger.Println("current task exec occur error: ", err)
 			r.allErrors[k] = err
+			continue
 		}
 	}
 
@@ -141,6 +144,11 @@ func (r *Runner) GetAllErrors() map[int]error {
 // GetLastTaskId 获取最后一次完成任务id
 func (r *Runner) GetLastTaskId() int {
 	return r.lastTaskId
+}
+
+// GetInterruptLastTaskId 当接收到中断信号量时候，执行任务的id
+func (r *Runner) GetInterruptLastTaskId() int {
+	return r.interruptLastTaskId
 }
 
 // Start 开始执行所有的任务
